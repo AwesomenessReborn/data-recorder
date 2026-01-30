@@ -49,6 +49,8 @@ class SensorRecorderService : Service(), SensorEventListener {
     var sampleCountGyro: Long = 0
     var lastAccelTimestamp: Long = 0
     var lastGyroTimestamp: Long = 0
+    var lastAccelValues = FloatArray(3)
+    var lastGyroValues = FloatArray(3)
     private var recordingStartEpochMs: Long = 0
     private var epochOffsetNs: Long = 0
 
@@ -76,8 +78,19 @@ class SensorRecorderService : Service(), SensorEventListener {
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+        
+        // Register listeners immediately for preview
+        accelerometer?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_FASTEST) }
+        gyroscope?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_FASTEST) }
+        
         createNotificationChannel()
     }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        sensorManager.unregisterListener(this)
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> startRecording()
@@ -103,15 +116,12 @@ class SensorRecorderService : Service(), SensorEventListener {
         startTimeNs = SystemClock.elapsedRealtimeNanos()
         recordingStartEpochMs = System.currentTimeMillis()
         epochOffsetNs = recordingStartEpochMs * 1_000_000L - startTimeNs
-        accelerometer?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_FASTEST) }
-        gyroscope?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_FASTEST) }
         isRecording.set(true)
         startFileFlusher()
     }
     fun stopRecording() {
         if (!isRecording.get()) return
         isRecording.set(false)
-        sensorManager.unregisterListener(this)
         try { wakeLock?.release() } catch (e: Exception) { Log.e(TAG, "Error releasing wakelock", e) }
         stopForeground(STOP_FOREGROUND_REMOVE)
         serviceScope.launch { flushBuffers(); writeMetadata() }
@@ -170,12 +180,24 @@ class SensorRecorderService : Service(), SensorEventListener {
             if (lastAccelTimestamp != 0L) {
                 accelIntervals.add(timestamp - lastAccelTimestamp)
             }
-            accelBuffer.add(line); sampleCountAccel++; lastAccelTimestamp = timestamp
+            lastAccelValues = event.values.clone()
+            lastAccelTimestamp = timestamp
+            
+            if (isRecording.get()) {
+                accelBuffer.add(line)
+                sampleCountAccel++
+            }
         } else if (event.sensor.type == Sensor.TYPE_GYROSCOPE) {
              if (lastGyroTimestamp != 0L) {
                 gyroIntervals.add(timestamp - lastGyroTimestamp)
             }
-            gyroBuffer.add(line); sampleCountGyro++; lastGyroTimestamp = timestamp
+            lastGyroValues = event.values.clone()
+            lastGyroTimestamp = timestamp
+
+            if (isRecording.get()) {
+                gyroBuffer.add(line)
+                sampleCountGyro++
+            }
         }
     }
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}

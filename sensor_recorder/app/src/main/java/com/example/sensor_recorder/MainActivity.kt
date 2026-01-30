@@ -96,9 +96,11 @@ fun RecorderScreen(
     var gyroCount by remember { mutableStateOf(0L) }
     var accelRate by remember { mutableStateOf(0.0) }
     var gyroRate by remember { mutableStateOf(0.0) }
+    var accelValues by remember { mutableStateOf(FloatArray(3)) }
+    var gyroValues by remember { mutableStateOf(FloatArray(3)) }
 
     // Poll service for status
-    LaunchedEffect(isBound, isRecording) {
+    LaunchedEffect(isBound) {
         while (true) {
             if (isBound && service != null) {
                 isRecording = service.isRecording.get()
@@ -112,8 +114,10 @@ fun RecorderScreen(
                 gyroCount = service.sampleCountGyro
                 accelRate = service.getAccelRateHz()
                 gyroRate = service.getGyroRateHz()
+                accelValues = service.lastAccelValues
+                gyroValues = service.lastGyroValues
             }
-            delay(500) // Update every 500ms
+            delay(100) // Update every 100ms
         }
     }
 
@@ -170,6 +174,23 @@ fun RecorderScreen(
         ) {
             StatItem(label = "Accel Rate", value = String.format(Locale.US, "%.1f Hz", accelRate))
             StatItem(label = "Gyro Rate", value = String.format(Locale.US, "%.1f Hz", gyroRate))
+        }
+        
+        HorizontalDivider()
+
+        // Live Values
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = "Live Data",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
+                SensorValueColumn("Accel (m/s²)", accelValues)
+                SensorValueColumn("Gyro (rad/s)", gyroValues)
+            }
         }
 
         Spacer(modifier = Modifier.weight(1f))
@@ -240,5 +261,17 @@ fun StatItem(label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(text = label, style = MaterialTheme.typography.labelMedium)
         Text(text = value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+fun SensorValueColumn(title: String, values: FloatArray) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(text = title, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+        if (values.isNotEmpty() && values.size >= 3) {
+            Text(text = String.format(Locale.US, "X: %10.6f", values[0]), style = MaterialTheme.typography.bodyMedium)
+            Text(text = String.format(Locale.US, "Y: %10.6f", values[1]), style = MaterialTheme.typography.bodyMedium)
+            Text(text = String.format(Locale.US, "Z: %10.6f", values[2]), style = MaterialTheme.typography.bodyMedium)
+        }
     }
 }
